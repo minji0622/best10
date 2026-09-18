@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>매출 분석 대시보드</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<!-- ───────── 상단 헤더 ───────── -->
+<header class="app-header no-print">
+    <div class="header-inner">
+        <div class="brand">
+            <span class="brand-mark" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 20V12M12 20V5M19 20v-9"/></svg>
+            </span>
+            <div>
+                <strong class="brand-name">매출 분석</strong>
+                <span class="brand-sub" id="brandPeriod">파일을 올리면 분석 기간이 표시됩니다</span>
+            </div>
+        </div>
+        <nav class="tabs" aria-label="화면 전환">
+            <button class="tab-btn active" data-tab="tab-dashboard">대시보드</button>
+            <button class="tab-btn" data-tab="tab-report">상세 리포트</button>
+            <button class="tab-btn" data-tab="tab-verify">검증 가이드</button>
+        </nav>
+        <div class="actions">
+            <button id="editColumnsBtn" class="btn btn-ghost" style="display: none;">컬럼 편집</button>
+            <button id="clearBtn" class="btn btn-ghost">데이터 초기화</button>
+            <button id="downloadBtn" class="btn btn-outline">Excel 다운로드</button>
+            <button onclick="printWithCharts()" class="btn btn-primary">PDF 인쇄</button>
+        </div>
+    </div>
+</header>
+
+<main class="container">
+
+    <!-- 인쇄 전용 헤더 -->
+    <div class="print-header">
+        <div>
+            <div class="print-header-title">매출 분석 리포트</div>
+            <div class="print-header-sub">Sales Analytics Dashboard</div>
+        </div>
+        <div id="print-meta"></div>
+    </div>
+
+    <!-- 업로드 -->
+    <div class="upload-zone no-print" role="button" tabindex="0" onclick="document.getElementById('fileInput').click()">
+        <div class="upload-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></svg>
+        </div>
+        <div class="upload-text">
+            <p class="upload-title">
+                <span class="when-empty">분석할 엑셀 파일을 올려주세요</span>
+                <span class="when-loaded">다른 파일로 다시 분석하기</span>
+            </p>
+            <p class="upload-hint">파일을 여기에 끌어다 놓거나 클릭해서 선택하세요 (.xlsx, .xls, .csv)</p>
+            <p class="upload-cols">
+                <span class="chip chip-req">꼭 필요</span> 주문일시, 결제금액
+                <span class="chip chip-opt">있으면 더 자세히</span> 상품명, 주문자명, 회원구분, 주문횟수, 사용적립금, 광고비
+            </p>
+        </div>
+        <input type="file" id="fileInput" accept=".xlsx, .xls, .csv" style="display: none;">
+    </div>
+
+    <p class="help-note no-print">
+        <span class="tip-sample" aria-hidden="true">?</span>
+        <span>처음 보신다면 제목 옆 <b>?</b> 표시에 마우스를 올리거나 눌러보세요. 각 숫자가 어떤 기준으로 계산됐는지 말풍선으로 알려드려요.</span>
+    </p>
+
+    <!-- ═════════════════ 대시보드 탭 ═════════════════ -->
+    <div id="tab-dashboard" class="tab-content active">
+
+        <!-- ── 그룹 1: 핵심 지표 ── -->
+        <section class="group">
+            <div class="group-head">
+                <h2 class="group-title">이번 달 핵심 지표</h2>
+                <p class="group-desc" id="kpiBasis">가장 최근 달 기준으로, 바로 전달과 비교합니다</p>
+            </div>
+            <div class="kpi-grid">
+                <article class="kpi-card kpi-card--hero">
+                    <div class="kpi-title">당월 총 매출액
+                        <button type="button" class="tip" aria-label="계산 기준 보기"><span class="tip-body">
+                            <span class="tr"><span class="tl">뜻</span>가장 최근 달에 결제된 금액을 모두 더한 값</span>
+                            <span class="tr"><span class="tl">계산</span>해당 월 '결제금액' 합계 (쉼표나 문자가 섞인 금액도 숫자로 바꿔 계산)</span>
+                            <span class="tr"><span class="tl">참고</span>아래 ▲▼는 바로 전달과 비교한 증감률</span>
+                        </span></button>
+                    </div>
+                    <div class="kpi-value" id="kpi-revenue">0원</div>
+                    <div class="kpi-trend"><span>-</span></div>
+                </article>
+                <article class="kpi-card">
+                    <div class="kpi-title">활동 회원 수
+                        <button type="button" class="tip" aria-label="계산 기준 보기"><span class="tip-body">
+                            <span class="tr"><span class="tl">뜻</span>이번 달 주문자 중 예전에도 주문한 적이 있는 사람 수</span>
+                            <span class="tr"><span class="tl">기준</span>주문자명이 같으면 같은 사람으로 봅니다</span>
+                            <span class="tr"><span class="tl">예시</span>7월 주문자 '유정연'이 1월에도 주문했다면 포함, 7월이 첫 주문이면 제외</span>
+                        </span></button>
+                    </div>
+                    <div class="kpi-value" id="kpi-users">0명</div>
+                    <div class="kpi-trend"><span>-</span></div>
+                    <div class="kpi-sub" id="kpi-users-sub"></div>
+                </article>
+                <article class="kpi-card">
+                    <div class="kpi-title">신규 매출 비중
+                        <button type="button" class="tip" aria-label="계산 기준 보기"><span class="tip-body">
+                            <span class="tr"><span class="tl">뜻</span>이번 달 매출 중 처음 온 고객이 만든 매출의 비율</span>
+                            <span class="tr"><span class="tl">기준</span>주문횟수 0~1회 고객을 신규로 봅니다</span>
+                            <span class="tr"><span class="tl">계산</span>신규 고객 매출 ÷ 총 매출 × 100</span>
+                        </span></button>
+                    </div>
+                    <div class="kpi-value" id="kpi-new-ratio">0%</div>
+                    <div class="kpi-trend kpi-note">주문 0~1회 고객</div>
+                </article>
+                <article class="kpi-card">
+                    <div class="kpi-title">평균 객단가
+                        <button type="button" class="tip" aria-label="계산 기준 보기"><span class="tip-body">
+                            <span class="tr"><span class="tl">뜻</span>주문 1건에 평균 얼마를 결제했는지 (AOV)</span>
+                            <span class="tr"><span class="tl">계산</span>총 매출액 ÷ 주문 건수</span>
+                            <span class="tr"><span class="tl">예시</span>매출 100만원, 주문 10건 → 객단가 10만원</span>
+                        </span></button>
+                    </div>
+                    <div class="kpi-value" id="kpi-aov">0원</div>
+                    <div class="kpi-trend kpi-note">건당 평균 결제액</div>
+                </article>
+                <article class="kpi-card">
+                    <div class="kpi-title">신규매출 ROAS
+                        <button type="button" class="tip" aria-label="계산 기준 보기"><span class="tip-body">
+                            <span class="tr"><span class="tl">뜻</span>광고비 대비 신규 매출이 얼마나 나왔는지</span>
+                            <span class="tr"><span class="tl">계산</span>신규 매출 ÷ 광고비 × 100</span>
+                            <span class="tr"><span class="tl">예시</span>광고비 100원, 신규매출 1,000원 → 1,000%</span>
+                            <span class="tr"><span class="tl">읽는 법</span>100% 이상이면 초록(광고비보다 신규매출이 큼), 미만이면 빨강</span>
+                        </span></button>
+                    </div>
+                    <div class="kpi-value" id="kpi-roas">-</div>
+                    <div class="kpi-trend kpi-note" id="kpi-roas-sub">광고비 대비 신규매출</div>
+                </article>
+            </div>
+        </section>
+
+        <!-- ── 그룹 2: 매출 흐름 ── -->
+        <section class="group">
+            <div class="group-head">
+                <h2 class="group-title">매출 흐름</h2>
+                <p class="group-desc">매출이 달마다 늘고 있는지, 전달보다 얼마나 변했는지</p>
+            </div>
+            <div class="stack">
+                <div class="card">
+                    <div class="card-head">
+                        <div>
+                            <h3 class="card-title">월별 매출과 신규 매출 추이
+                                <button type="button" class="tip" aria-label="계산 기준 보기"><span class="tip-body">
+                                    <span class="tr"><span class="tl">막대</span>월별 전체 매출</span>
+                                    <span class="tr"><span class="tl">초록 선</span>신규 고객(주문횟수 0~1회) 매출</span>
+                                    <span class="tr"><span class="tl">노란 점선</span>신규 ROAS, 오른쪽 축(%) 기준</span>
+                                    <span class="tr"><span class="tl">참고</span>광고비가 없는 달은 ROAS가 비어 있습니다</span>
+                                </span></button>
+                            </h3>
+                            <p class="card-desc">전체 매출 중 새 고객이 만든 매출이 얼마인지 함께 봅니다.</p>
+                        </div>
+                    </div>
+                    <div class="chart-container h-300"><canvas id="salesChart"></canvas></div>
+                </div>
+
+                <div class="card">
+                    <div class="card-head">
+                        <div>
+                            <h3 class="card-title">전월 대비 매출액과 주문건수
+                                <button type="button" class="tip" aria-label="계산 기준 보기"><span class="tip-body">
+                                    <span class="tr"><span class="tl">기준</span>가장 최근 달과 바로 전달을 비교합니다</span>
+                                    <span class="tr"><span class="tl">계산</span>증감률 = (이번 달 − 전달) ÷ 전달 × 100</span>
+                                    <span class="tr"><span class="tl">참고</span>첫 달은 비교할 전달이 없어 비어 있습니다</span>
+                                </span></button>
+                            </h3>
+                            <p class="card-desc">왼쪽은 월별 추이, 오른쪽은 전달보다 몇 % 늘거나 줄었는지입니다.</p>
+                        </div>
+                    </div>
+                    <div id="momSummary" class="badge-row"></div>
+                    <div class="grid-mom">
+                        <div>
+                            <h4 class="sub-title">월별 매출액과 주문건수
+                                <button type="button" class="tip" aria-label="계산 기준 보기"><span class="tip-body">
+                                    <span class="tr"><span class="tl">막대</span>매출액 (왼쪽 축, 원)</span>
+                                    <span class="tr"><span class="tl">빨간 선</span>주문건수 (오른쪽 축, 건)</span>
+                                </span></button>
+                            </h4>
+                            <div class="chart-container h-320"><canvas id="momTrendChart"></canvas></div>
+                        </div>
+                        <div>
+                            <h4 class="sub-title">전월 대비 증감률
+                                <button type="button" class="tip" aria-label="계산 기준 보기"><span class="tip-body">
+                                    <span class="tr"><span class="tl">읽는 법</span>0% 선보다 위는 증가, 아래는 감소</span>
+                                    <span class="tr"><span class="tl">파랑</span>매출액 증감률</span>
+                                    <span class="tr"><span class="tl">초록</span>주문건수 증감률</span>
+                                </span></button>
+                            </h4>
+                            <div class="chart-container h-320"><canvas id="momGrowthChart"></canvas></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── 그룹 3: 고객 ── -->
+        <section class="group">
+            <div class="group-head">
+                <h2 class="group-title">고객 분석</h2>
+                <p class="group-desc">누가 사고, 누가 다시 사는지</p>
+            </div>
+            <div class="stack">
+                <div class="card card--key allow-break">
+                    <div class="card-head">
+                        <div>
+                            <h3 class="card-title">월별 비회원, 준회원, 재구매 회원 추이
+                                <button type="button" class="tip" aria-label="계산 기준 보기"><span class="tip-body">
+                                    <span class="tr"><span class="tl">뜻</span>원본 '주문횟수' 값으로 고객을 나눠 달마다 얼마나 오는지 봅니다</span>
+                                    <span class="tr"><span class="tl">같은 고객</span>법인/회사명 주문은 휴대폰번호가 달라도 주문자명이 같으면 같은 고객</span>
+                                    <span class="tr"><span class="tl">참고</span>신규(1회)는 그래프에서 빼고 표에만 참고로 보여줍니다</span>
+                                </span></button>
+                            </h3>
+                            <p class="card-desc">가장 중요한 지표입니다. 재구매 회원이 늘면 단골이 쌓이고 있다는 뜻이에요.</p>
+                        </div>
+                        <div class="toggle-wrap">
+                            <div class="toggle-group" role="group" aria-label="보기 단위">
+                                <button class="toggle-btn active" data-guest-mode="count">건수</button>
+                                <button class="toggle-btn" data-guest-mode="users">실제 인원수</button>
+                                <button class="toggle-btn" data-guest-mode="amount">금액</button>
+                            </div>
+                            <button type="button" class="tip" aria-label="보기 단위 설명"><span class="tip-body">
+                                <span class="tr"><span class="tl">건수</span>주문이 몇 건 들어왔는지</span>
+                                <span class="tr"><span class="tl">실제 인원수</span>같은 사람이 여러 번 주문해도 1명으로 셉니다</span>
+                                <span class="tr"><span class="tl">금액</span>결제금액 합계</span>
+                            </span></button>
+                        </div>
+                    </div>
+
+                    <ul class="legend-defs">
+                        <li><span class="dot" style="background:#D99A2B"></span><b>비회원</b><span>주문횟수 0회</span>
+                            <button type="button" class="tip" aria-label="비회원 기준"><span class="tip-body">
+                                <span class="tr"><span class="tl">기준</span>주문횟수 0회이고, 같은 이름으로 다시 주문한 적이 없는 고객</span>
+                                <span class="tr"><span class="tl">예시</span>회원가입 없이 한 번만 주문한 손님</span>
+                            </span></button></li>
+                        <li><span class="dot" style="background:#8759B0"></span><b>준회원</b><span>0회인데 같은 이름으로 반복 주문</span>
+                            <button type="button" class="tip" aria-label="준회원 기준"><span class="tip-body">
+                                <span class="tr"><span class="tl">기준</span>주문횟수는 0회지만 같은 주문자명이 데이터에 2번 이상 나오는 고객</span>
+                                <span class="tr"><span class="tl">뜻</span>가입은 안 했지만 사실상 다시 사는 손님</span>
+                            </span></button></li>
+                        <li><span class="dot" style="background:#3C6E91"></span><b>재구매 회원</b><span>주문횟수 2회 이상</span>
+                            <button type="button" class="tip" aria-label="재구매 회원 기준"><span class="tip-body">
+                                <span class="tr"><span class="tl">기준</span>주문횟수가 2회 이상인 회원</span>
+                                <span class="tr"><span class="tl">뜻</span>가입 후 두 번 이상 산 단골 고객</span>
+                            </span></button></li>
+                        <li class="is-ref"><span class="dot" style="background:#A3ADA8"></span><b>신규(1회)</b><span>주문횟수 1회, 참고용</span>
+                            <button type="button" class="tip" aria-label="신규 기준"><span class="tip-body">
+                                <span class="tr"><span class="tl">기준</span>주문횟수가 정확히 1회인 첫 구매 회원</span>
+                                <span class="tr"><span class="tl">참고</span>그래프에는 없고 아래 표에만 표시됩니다</span>
+                            </span></button></li>
+                    </ul>
+
+                    <div id="guestRepeatSummary" class="badge-row"></div>
+                    <div class="chart-container h-340"><canvas id="guestRepeatChart"></canvas></div>
+                    <div class="table-scroll mt">
+                        <table id="guestRepeatTable">
+                            <thead>
+                                <tr>
+                                    <th class="text-center" rowspan="2">월</th>
+                                    <th class="text-center" rowspan="2">실제 주문자수
+                                        <button type="button" class="tip" aria-label="기준 보기"><span class="tip-body">
+                                            <span class="tr"><span class="tl">뜻</span>그 달에 주문한 모든 사람 수 (같은 사람은 1명)</span>
+                                            <span class="tr"><span class="tl">참고</span>신규(1회)도 포함되어 세 그룹 인원 합보다 클 수 있어요</span>
+                                        </span></button>
+                                    </th>
+                                    <th class="text-center col-group" colspan="3">비회원</th>
+                                    <th class="text-center col-group" colspan="3">준회원</th>
+                                    <th class="text-center col-group" colspan="3">재구매 회원</th>
+                                    <th class="text-center col-group" rowspan="2">신규(1회)<br>실제 인원
+                                        <button type="button" class="tip" aria-label="기준 보기"><span class="tip-body">
+                                            <span class="tr"><span class="tl">뜻</span>주문횟수 1회 고객 수 (참고용)</span>
+                                        </span></button>
+                                    </th>
+                                    <th class="text-center" rowspan="2">재구매 비중
+                                        <button type="button" class="tip" aria-label="기준 보기"><span class="tip-body">
+                                            <span class="tr"><span class="tl">계산</span>재구매 회원 실제 인원 ÷ 실제 주문자수 × 100</span>
+                                        </span></button>
+                                    </th>
+                                </tr>
+                                <tr>
+                                    <th class="text-right col-group">주문건수</th>
+                                    <th class="text-right">실제 인원</th>
+                                    <th class="text-right">매출</th>
+                                    <th class="text-right col-group">주문건수</th>
+                                    <th class="text-right">실제 인원</th>
+                                    <th class="text-right">매출</th>
+                                    <th class="text-right col-group">주문건수</th>
+                                    <th class="text-right">실제 인원</th>
+                                    <th class="text-right">매출</th>
+                                </tr>
+                            </thead>
+                            <tbody id="guestRepeatTbody">
+                                <tr><td colspan="13" class="text-center empty-cell">데이터를 업로드하면 표시됩니다.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="grid-2">
+                    <div class="card">
+                        <div class="card-head">
+                            <div>
+                                <h3 class="card-title">회원유형별 전월 대비 매출
+                                    <button type="button" class="tip" aria-label="계산 기준 보기"><span class="tip-body">
+                                        <span class="tr"><span class="tl">기준</span>원본 '회원구분' 값(예: 개인회원, 기업회원)으로 묶습니다. 비어 있으면 '미분류'</span>
+                                        <span class="tr"><span class="tl">읽는 법</span>연한 막대 = 전월, 진한 막대 = 당월, 점선 = 증감률(오른쪽 축)</span>
+                                    </span></button>
+                                </h3>
+                                <p class="card-desc">당월과 전월 매출을 회원유형별로 나란히 비교합니다.</p>
+                            </div>
+                        </div>
+                        <div id="memberCompSummary" class="badge-row"></div>
+                        <div class="chart-container h-340"><canvas id="memberCompChart"></canvas></div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-head">
+                            <div>
+                                <h3 class="card-title">고객 주문빈도 분포
+                                    <button type="button" class="tip" aria-label="계산 기준 보기"><span class="tip-body">
+                                        <span class="tr"><span class="tl">뜻</span>고객 한 명이 전체 기간 동안 몇 번 주문했는지를 구간으로 나눕니다</span>
+                                        <span class="tr"><span class="tl">기준</span>올린 파일 안에서 같은 주문자명의 주문 줄 수를 셉니다</span>
+                                        <span class="tr"><span class="tl">참고</span>원본 '주문횟수' 값과는 다를 수 있어요</span>
+                                    </span></button>
+                                </h3>
+                                <p class="card-desc">한 번만 산 고객과 여러 번 산 고객의 비율입니다.</p>
+                            </div>
+                        </div>
+                        <div class="chart-container h-320"><canvas id="orderDistChart"></canvas></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── 그룹 4: 상품 · 결제 ── -->
+        <section class="group">
+            <div class="group-head">
+                <h2 class="group-title">상품과 결제</h2>
+                <p class="group-desc">무엇이, 얼마에 팔리는지</p>
+            </div>
+            <div class="stack">
+                <div class="card allow-break">
+                    <div class="card-head">
+                        <div>
+                            <h3 class="card-title">상품 카테고리별 월별 매출
+                                <button type="button" class="tip" aria-label="계산 기준 보기"><span class="tip-body">
+                                    <span class="tr"><span class="tl">기준</span>상품명에 들어 있는 키워드로 자동 분류합니다</span>
+                                    <span class="tr"><span class="tl">예시</span>'근조 3단 화환' → 근조화환, '금전수 화분' → 관엽식물</span>
+                                    <span class="tr"><span class="tl">참고</span>키워드가 여러 개 맞으면 화환 → 난 → 식물 순으로 먼저 맞는 쪽, 하나도 없으면 '기타'</span>
+                                </span></button>
+                            </h3>
+                            <p class="card-desc">근조화환, 관엽식물, 꽃바구니 등 상품군별로 매달 얼마나 팔렸는지 봅니다.</p>
+                        </div>
+                        <div class="toggle-group" role="group" aria-label="보기 단위">
+                            <button class="toggle-btn active" data-mode="amount">금액</button>
+                            <button class="toggle-btn" data-mode="count">건수</button>
+                        </div>
+                    </div>
+                    <div class="chart-container h-360"><canvas id="catMonthlyChart"></canvas></div>
+                    <div class="table-scroll mt">
+                        <table id="catMonthlyTable">
+                            <thead id="catMonthlyHead"></thead>
+                            <tbody id="catMonthlyTbody">
+                                <tr><td class="text-center empty-cell">데이터를 업로드하면 카테고리별 실적이 표시됩니다.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="grid-2">
+                    <div class="card">
+                        <div class="card-head">
+                            <div>
+                                <h3 class="card-title">상품명 [말머리]별 매출 비중
+                                    <button type="button" class="tip" aria-label="계산 기준 보기"><span class="tip-body">
+                                        <span class="tr"><span class="tl">기준</span>상품명 맨 앞 [대괄호] 안의 글자로 묶습니다</span>
+                                        <span class="tr"><span class="tl">예시</span>[본점] 축하화환 3단 → 본점</span>
+                                        <span class="tr"><span class="tl">참고</span>대괄호가 없으면 '기타', 금액 상위 8개만 표시</span>
+                                    </span></button>
+                                </h3>
+                                <p class="card-desc">전체 기간 결제금액 기준</p>
+                            </div>
+                        </div>
+                        <div class="chart-container h-320"><canvas id="categoryChart"></canvas></div>
+                    </div>
+                    <div class="card">
+                        <div class="card-head">
+                            <div>
+                                <h3 class="card-title">결제금액대별 주문 건수
+                                    <button type="button" class="tip" aria-label="계산 기준 보기"><span class="tip-body">
+                                        <span class="tr"><span class="tl">뜻</span>주문 1건의 결제금액이 어느 가격대에 속하는지</span>
+                                        <span class="tr"><span class="tl">기준</span>경계 금액은 아래 구간에 포함 (예: 70,000원 → 7만원 이하)</span>
+                                    </span></button>
+                                </h3>
+                                <p class="card-desc">전체 기간 주문 건수 기준</p>
+                            </div>
+                        </div>
+                        <div class="chart-container h-320"><canvas id="amountDistChart"></canvas></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── 그룹 5: 마케팅 비용 ── -->
+        <section class="group">
+            <div class="group-head">
+                <h2 class="group-title">광고비와 적립금</h2>
+                <p class="group-desc">쓴 비용만큼 매출로 돌아오고 있는지</p>
+            </div>
+            <div class="stack">
+                <div class="card">
+                    <div class="card-head">
+                        <div>
+                            <h3 class="card-title">월별 광고비 집행
+                                <button type="button" class="tip" aria-label="계산 기준 보기"><span class="tip-body">
+                                    <span class="tr"><span class="tl">기준</span>'광고비' 컬럼 값을 월별로 더합니다</span>
+                                    <span class="tr"><span class="tl">계산</span>신규 ROAS = 신규 매출 ÷ 광고비 × 100</span>
+                                    <span class="tr"><span class="tl">읽는 법</span>노란 막대 = 광고비, 연두 막대 = 신규 매출, 초록 선 = ROAS</span>
+                                </span></button>
+                            </h3>
+                            <p class="card-desc">광고비와 신규 매출을 나란히 보고, ROAS 선으로 효율을 확인하세요.</p>
+                        </div>
+                    </div>
+                    <div id="adNotice" class="field-notice"></div>
+                    <div id="adSummary" class="badge-row"></div>
+                    <div class="chart-container h-340"><canvas id="adCostChart"></canvas></div>
+                </div>
+
+                <div class="card allow-break">
+                    <div class="card-head">
+                        <div>
+                            <h3 class="card-title">적립금 사용
+                                <button type="button" class="tip" aria-label="계산 기준 보기"><span class="tip-body">
+                                    <span class="tr"><span class="tl">기준</span>'사용적립금'(또는 비슷한 이름) 컬럼을 월별로 더합니다</span>
+                                    <span class="tr"><span class="tl">계산</span>매출 대비 사용률 = 사용 적립금 ÷ 매출 × 100</span>
+                                </span></button>
+                            </h3>
+                            <p class="card-desc">고객이 쓴 적립금과, 매출에서 적립금이 차지하는 비율입니다.</p>
+                        </div>
+                    </div>
+                    <div id="pointNotice" class="field-notice"></div>
+                    <div id="pointSummary" class="badge-row"></div>
+                    <div class="chart-container h-320"><canvas id="pointChart"></canvas></div>
+                    <div class="table-scroll mt">
+                        <table id="pointTable">
+                            <thead>
+                                <tr>
+                                    <th class="text-center">월</th>
+                                    <th class="text-right">사용 적립금</th>
+                                    <th class="text-right">전월 대비</th>
+                                    <th class="text-right">사용 주문건수
+                                        <button type="button" class="tip" aria-label="기준 보기"><span class="tip-body">
+                                            <span class="tr"><span class="tl">뜻</span>적립금을 1원이라도 쓴 주문 수</span>
+                                        </span></button>
+                                    </th>
+                                    <th class="text-right">건당 평균 사용액
+                                        <button type="button" class="tip" aria-label="기준 보기"><span class="tip-body">
+                                            <span class="tr"><span class="tl">계산</span>사용 적립금 ÷ 사용 주문건수</span>
+                                            <span class="tr"><span class="tl">참고</span>적립금을 안 쓴 주문은 빼고 계산</span>
+                                        </span></button>
+                                    </th>
+                                    <th class="text-right">매출 대비 사용률
+                                        <button type="button" class="tip" aria-label="기준 보기"><span class="tip-body">
+                                            <span class="tr"><span class="tl">계산</span>사용 적립금 ÷ 그 달 총 매출 × 100</span>
+                                        </span></button>
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody id="pointTbody">
+                                <tr><td colspan="6" class="text-center empty-cell">데이터를 업로드하면 적립금 사용 내역이 표시됩니다.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── 그룹 6: 연간 요약 ── -->
+        <section class="group" id="yearly-summary-section" style="display: none;">
+            <div class="group-head">
+                <h2 class="group-title">연간 실적 요약</h2>
+                <p class="group-desc">한 해 전체로 합쳐서 보면</p>
+            </div>
+            <div class="card">
+                <div class="table-scroll">
+                    <table id="yearly-summary-table">
+                        <thead>
+                            <tr>
+                                <th class="text-center">연도</th>
+                                <th class="text-right">총 매출액</th>
+                                <th class="text-right">신규 매출액
+                                    <button type="button" class="tip" aria-label="기준 보기"><span class="tip-body">
+                                        <span class="tr"><span class="tl">기준</span>주문횟수 0~1회 고객의 매출 합계</span>
+                                    </span></button>
+                                </th>
+                                <th class="text-right">신규 비중
+                                    <button type="button" class="tip" aria-label="기준 보기"><span class="tip-body">
+                                        <span class="tr"><span class="tl">계산</span>신규 매출액 ÷ 총 매출액 × 100</span>
+                                    </span></button>
+                                </th>
+                                <th class="text-right">총 주문건수</th>
+                                <th class="text-right">평균 객단가
+                                    <button type="button" class="tip" aria-label="기준 보기"><span class="tip-body">
+                                        <span class="tr"><span class="tl">계산</span>총 매출액 ÷ 총 주문건수</span>
+                                    </span></button>
+                                </th>
+                                <th class="text-right">광고비</th>
+                                <th class="text-right">신규 ROAS
+                                    <button type="button" class="tip" aria-label="기준 보기"><span class="tip-body">
+                                        <span class="tr"><span class="tl">계산</span>신규 매출액 ÷ 광고비 × 100</span>
+                                        <span class="tr"><span class="tl">읽는 법</span>100% 이상 초록, 미만 빨강</span>
+                                    </span></button>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody id="yearlyTbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- ═════════════════ 상세 리포트 탭 ═════════════════ -->
+    <div id="tab-report" class="tab-content">
+        <section class="group">
+            <div class="group-head">
+                <h2 class="group-title">월별 회원유형 상세 리포트</h2>
+                <p class="group-desc">달마다 회원유형별 실적과 합계를 표로 봅니다</p>
+            </div>
+            <div class="card">
+                <div class="table-scroll">
+                    <table id="reportTable">
+                        <thead>
+                            <tr>
+                                <th class="text-center">월</th>
+                                <th>회원유형
+                                    <button type="button" class="tip" aria-label="기준 보기"><span class="tip-body">
+                                        <span class="tr"><span class="tl">기준</span>원본 '회원구분' 컬럼 값, 비어 있으면 '미분류'</span>
+                                    </span></button>
+                                </th>
+                                <th class="text-right">주문건수</th>
+                                <th class="text-right">매출액</th>
+                                <th class="text-right">신규매출액
+                                    <button type="button" class="tip" aria-label="기준 보기"><span class="tip-body">
+                                        <span class="tr"><span class="tl">기준</span>주문횟수 0~1회 고객의 매출</span>
+                                    </span></button>
+                                </th>
+                                <th class="text-right">광고비
+                                    <button type="button" class="tip" aria-label="기준 보기"><span class="tip-body">
+                                        <span class="tr"><span class="tl">기준</span>그 달 전체 광고비 (회원유형으로 나누지 않아 첫 줄에만 표시)</span>
+                                    </span></button>
+                                </th>
+                                <th class="text-right">신규 ROAS
+                                    <button type="button" class="tip" aria-label="기준 보기"><span class="tip-body">
+                                        <span class="tr"><span class="tl">계산</span>그 달 신규매출 ÷ 광고비 × 100</span>
+                                    </span></button>
+                                </th>
+                                <th class="text-right">평균 객단가
+                                    <button type="button" class="tip" aria-label="기준 보기"><span class="tip-body">
+                                        <span class="tr"><span class="tl">계산</span>매출액 ÷ 주문건수</span>
+                                    </span></button>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody id="reportTbody">
+                            <tr><td colspan="8" class="text-center empty-cell">데이터를 업로드하면 상세 리포트가 표시됩니다.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- ═════════════════ 검증 가이드 탭 ═════════════════ -->
+    <div id="tab-verify" class="tab-content no-print">
+        <section class="group">
+            <div class="group-head">
+                <h2 class="group-title">엑셀 수식으로 직접 확인하기</h2>
+                <p class="group-desc">대시보드 숫자가 맞는지 엑셀에서 같은 값을 계산해 보세요</p>
+            </div>
+            <div class="note-panel">
+                <p>아래 수식을 복사해 원본 엑셀 시트의 빈 셀에 붙여넣으면 됩니다.</p>
+                <p class="note-sub">열 위치는 A: 주문일시, B: 회원구분, C: 결제금액, D: 주문횟수, E: 주문자명이라고 가정했어요. 실제 파일과 다르면 열 문자만 바꿔주세요.</p>
+            </div>
+            <div class="grid-2">
+                <div class="card">
+                    <h4 class="formula-title">월간 총 매출액</h4>
+                    <div class="code-block">
+                        <code id="formula-total">=SUMPRODUCT((TEXT(A:A,"YYYY-MM")="2026-02")*(C:C))</code>
+                        <button class="btn-copy" onclick="copyFormula('formula-total')">수식 복사</button>
+                    </div>
+                    <p class="formula-desc">2026년 2월의 모든 결제금액(C열)을 합산합니다.</p>
+                </div>
+                <div class="card">
+                    <h4 class="formula-title">월간 신규 매출액</h4>
+                    <div class="code-block">
+                        <code id="formula-new">=SUMPRODUCT((TEXT(A:A,"YYYY-MM")="2026-02")*(D:D<=1)*(C:C))</code>
+                        <button class="btn-copy" onclick="copyFormula('formula-new')">수식 복사</button>
+                    </div>
+                    <p class="formula-desc">2026년 2월 중 주문횟수(D열)가 1 이하인 금액만 합산합니다.</p>
+                </div>
+                <div class="card">
+                    <h4 class="formula-title">월간 활동 회원 수</h4>
+                    <div class="code-block">
+                        <code id="formula-users">=LET(nm, FILTER(E2:E10000, TEXT(A2:A10000,"YYYY-MM")="2026-02"), u, UNIQUE(nm), SUM(--(COUNTIFS(E:E, u, A:A, "<"&DATE(2026,2,1))>0)))</code>
+                        <button class="btn-copy" onclick="copyFormula('formula-users')">수식 복사</button>
+                    </div>
+                    <p class="formula-desc">2월 주문자(E열) 중 2월 1일 이전에도 주문한 사람만 셉니다. Excel 365에서 동작합니다.</p>
+                </div>
+                <div class="card">
+                    <h4 class="formula-title">특정 회원유형 매출</h4>
+                    <div class="code-block">
+                        <code id="formula-type">=SUMIFS(C:C, A:A, ">=2026-02-01", A:A, "<=2026-02-28", B:B, "기업회원")</code>
+                        <button class="btn-copy" onclick="copyFormula('formula-type')">수식 복사</button>
+                    </div>
+                    <p class="formula-desc">지정한 날짜 범위 안의 '기업회원' 매출만 합산합니다.</p>
+                </div>
+            </div>
+        </section>
+    </div>
+</main>
+
+<!-- 컬럼 선택 모달 -->
+<div id="columnModal" class="modal">
+    <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="columnModalTitle">
+        <div class="modal-header">
+            <h3 id="columnModalTitle">가져올 컬럼 선택</h3>
+            <button type="button" class="close-modal" aria-label="닫기">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p class="modal-desc">분석에 사용할 컬럼을 고르세요. <b>주문일시</b>와 <b>결제금액</b>은 꼭 포함해야 합니다.</p>
+            <div id="columnList" class="column-grid"></div>
+        </div>
+        <div class="modal-footer">
+            <button id="selectAllBtn" class="btn btn-outline">전체 선택/해제</button>
+            <div class="spacer"></div>
+            <button id="cancelModalBtn" class="btn btn-ghost">취소</button>
+            <button id="applyColumnsBtn" class="btn btn-primary">데이터 반영하기</button>
+        </div>
+    </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
