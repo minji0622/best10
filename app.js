@@ -158,7 +158,8 @@ let charts = {
     catMonthly: null,
     point: null,
     adCost: null,
-    guestRepeat: null
+    guestRepeat: null,
+    memberRecent3: null
 };
 let catChartMode = 'amount'; // 'amount' | 'count'
 
@@ -460,7 +461,15 @@ function customerKey(nr) {
     const name = nr.주문자명 != null ? String(nr.주문자명).replace(/\s+/g, '').trim() : '';
     if (name) return name;
     const id = nr.주문자ID != null ? String(nr.주문자ID).replace(/\s+/g, '').trim() : '';
-    return id || '익명';
+    // 'guest'는 모든 비회원이 함께 쓰는 공용 ID라 사람을 구분할 수 없음
+    // → 주문자명이 없으면 주문 1건을 각각 다른 고객으로 본다 (전부 한 사람으로 합쳐져 준회원이 되는 문제 방지)
+    if (!id || id.toLowerCase() === 'guest') {
+        // 주문번호는 18자리라 숫자로 읽히면 끝자리가 뭉개질 수 있어 '번호'와 함께 사용
+        const parts = [nr.번호, nr.주문번호].filter(v => v != null && String(v).trim() !== '').map(v => String(v).trim());
+        const orderNo = parts.length ? parts.join('|') : `${nr.주문일시}|${nr.결제금액}|${nr.상품명}`;
+        return `${id ? 'guest' : '익명'}#${orderNo}`;
+    }
+    return id;
 }
 
 // 4. 데이터 집계 로직
@@ -803,6 +812,7 @@ function renderCharts() {
     renderOrderDistChart();
     renderAmountDistChart();
     renderMemberCompChart();
+    renderMemberRecent3Chart();
     renderGuestRepeatChart();
     renderMomCharts();
     renderCategoryMonthly();
@@ -1637,6 +1647,120 @@ function renderMemberCompChart() {
     }
 }
 
+// ── 최근 3개월 회원유형별(일반회원·비회원·기업회원) 매출 비교 ──
+const MEMBER_TYPE_ORDER = ['일반회원', '비회원', '기업회원'];
+const RECENT3_COLORS = ['#BCD3E2', '#7AA3C2', '#3C6E91']; // 오래된 달 → 최근 달
+
+function getRecent3MemberData() {
+    const ms = Object.keys(analyzedData.monthly).sort().slice(-3);
+    const typeSet = new Set();
+    ms.forEach(m => Object.keys(analyzedData.monthly[m].memberTypes || {}).forEach(t => typeSet.add(t)));
+    // 일반회원 → 비회원 → 기업회원 순서를 먼저, 그 외 유형은 뒤에
+    const types = [
+        ...MEMBER_TYPE_ORDER.filter(t => typeSet.has(t)),
+        ...Array.from(typeSet).filter(t => !MEMBER_TYPE_ORDER.includes(t)).sort()
+    ];
+    const amount = (m, t) => analyzedData.monthly[m].memberTypes[t]?.amount || 0;
+    const count  = (m, t) => analyzedData.monthly[m].memberTypes[t]?.count  || 0;
+    return { ms, types, amount, count };
+}
+
+function renderMemberRecent3Chart() {
+    const canvas = document.getElementById('memberRecent3Chart');
+    const ctx = canvas?.getContext('2d');
+    const summary = document.getElementById('memberRecent3Summary');
+    const thead = document.getElementById('memberRecent3Head');
+    const tbody = document.getElementById('memberRecent3Tbody');
+    const { ms, types, amount, count } = getRecent3MemberData();
+
+    if (!ms.length || !types.length) {
+        if (charts.memberRecent3) { charts.memberRecent3.destroy(); charts.memberRecent3 = null; }
+        showChartEmpty('memberRecent3Chart', 'memberRecent3Chart');
+        if (summary) summary.innerHTML = '';
+        if (thead) thead.innerHTML = '';
+        if (tbody) tbody.innerHTML = `<tr><td class="text-center empty-cell">데이터를 업로드하면 표시됩니다.</td></tr>`;
+        return;
+    }
+    hideChartEmpty('memberRecent3Chart', 'memberRecent3Chart');
+
+    const first = ms[0], last = ms[ms.length - 1], prev = ms.length >= 2 ? ms[ms.length - 2] : null;
+    const pct = (cur, base) => base ? (cur - base) / base * 100 : null;
+    const fmtRate = r => r === null ? '-' : `${r >= 0 ? '▲' : '▼'} ${Math.abs(r).toFixed(1)}%`;
+    const rateColor = r => r === null ? 'var(--secondary)' : (r >= 0 ? '#2E8A5E' : '#D0563F');
+    const colorOf = i => RECENT3_COLORS.slice(-ms.length)[i];
+
+    // 요약 배지: 유형별 최근 달 매출 + 전월 대비 / 3개월 전 대비
+    if (summary) {
+        summary.innerHTML = `<div class="comp-label">기간: <b>${first}</b> ~ <b>${last}</b> (${ms.length}개월)</div>` +
+            types.map(t => {
+                const cur = amount(last, t);
+                const rPrev = prev ? pct(cur, amount(prev, t)) : null;
+                const rFirst = ms.length >= 3 ? pct(cur, amount(first, t)) : null;
+                return `<div class="comp-badge" style="border-left:3px solid #3C6E91;">
+                    <span class="comp-type">${t}${tip(tipRow('뜻', `${last} ${t} 결제금액 합계`) + tipRow('아래 줄', `전월(${prev || '-'}) 대비${ms.length >= 3 ? `, 3개월 전(${first}) 대비` : ''} 증감률`))}</span>
+                    <span class="comp-cur">${cur.toLocaleString()}원</span>
+                    <span class="comp-diff" style="color:${rateColor(rPrev)};">전월 ${fmtRate(rPrev)}</span>
+                    ${ms.length >= 3 ? `<span class="comp-diff" style="color:${rateColor(rFirst)};">${first} 대비 ${fmtRate(rFirst)}</span>` : ''}
+                </div>`;
+            }).join('');
+    }
+
+    if (ctx) {
+        if (charts.memberRecent3) charts.memberRecent3.destroy();
+        charts.memberRecent3 = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: types,
+                datasets: ms.map((m, i) => ({
+                    label: m,
+                    data: types.map(t => amount(m, t)),
+                    backgroundColor: colorOf(i),
+                    borderRadius: 4,
+                    maxBarThickness: 46
+                }))
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                scales: {
+                    y: { beginAtZero: true, ticks: { callback: v => shortWon(v) },
+                         title: { display: true, text: '매출액 (원)', color: '#6B7772', font: { size: 11 } } },
+                    x: { ticks: { font: { size: 13, weight: '600' } } }
+                },
+                plugins: {
+                    legend: { position: 'top' },
+                    tooltip: { callbacks: { label: c => {
+                        const m = ms[c.datasetIndex], t = types[c.dataIndex];
+                        return ` ${m}: ${c.parsed.y.toLocaleString()}원 (${count(m, t).toLocaleString()}건)`;
+                    } } }
+                }
+            }
+        });
+    }
+
+    // 표: 행 = 회원유형, 열 = 최근 3개월
+    if (thead) {
+        thead.innerHTML = `<tr><th>회원유형</th>${ms.map(m => `<th class="text-right">${m}</th>`).join('')}<th class="text-right">3개월 합계</th><th class="text-right">비중${tip(tipRow('계산', '유형별 3개월 합계 ÷ 전체 3개월 합계 × 100'))}</th><th class="text-right">${first} → ${last}${tip(tipRow('계산', `(${last} − ${first}) ÷ ${first} × 100`))}</th></tr>`;
+    }
+    if (tbody) {
+        const sumOf = t => ms.reduce((s, m) => s + amount(m, t), 0);
+        const grand = types.reduce((s, t) => s + sumOf(t), 0);
+        const rows = types.map(t => {
+            const r = ms.length >= 2 ? pct(amount(last, t), amount(first, t)) : null;
+            return `<tr><td><b>${t}</b></td>
+                ${ms.map(m => `<td class="text-right">${amount(m, t).toLocaleString()}원<div class="cat-sub">${count(m, t).toLocaleString()}건</div></td>`).join('')}
+                <td class="text-right"><b>${sumOf(t).toLocaleString()}원</b></td>
+                <td class="text-right">${grand ? (sumOf(t) / grand * 100).toFixed(1) : '0.0'}%</td>
+                <td class="text-right" style="color:${rateColor(r)};font-weight:600;">${fmtRate(r)}</td></tr>`;
+        }).join('');
+        const totalRow = `<tr class="subtotal-row"><td>합계</td>
+            ${ms.map(m => `<td class="text-right">${types.reduce((s, t) => s + amount(m, t), 0).toLocaleString()}원</td>`).join('')}
+            <td class="text-right">${grand.toLocaleString()}원</td><td class="text-right">100%</td>
+            <td class="text-right">${(() => { const a = types.reduce((s, t) => s + amount(first, t), 0), b = types.reduce((s, t) => s + amount(last, t), 0); return ms.length >= 2 ? fmtRate(pct(b, a)) : '-'; })()}</td></tr>`;
+        tbody.innerHTML = rows + totalRow;
+    }
+}
+
 function renderYearlySummary() {
     const tb = document.getElementById('yearlyTbody');
     if (!tb) return;
@@ -1805,6 +1929,15 @@ document.getElementById('downloadBtn')?.addEventListener('click', () => {
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(adRows), "7. 광고비 집행");
 
+    // 8. 최근 3개월 회원유형별 매출
+    const r3 = getRecent3MemberData();
+    if (r3.ms.length) {
+        const r3Rows = [['회원유형', ...r3.ms.flatMap(m => [`${m} 매출액`, `${m} 건수`]), '3개월 합계']];
+        r3.types.forEach(t => r3Rows.push([t, ...r3.ms.flatMap(m => [r3.amount(m, t), r3.count(m, t)]),
+            r3.ms.reduce((s, m) => s + r3.amount(m, t), 0)]));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(r3Rows), "8. 최근3개월 회원유형");
+    }
+
     const dateFile = today.toISOString().slice(0, 10);
     XLSX.writeFile(wb, `매출보고서_${dateFile}.xlsx`);
 });
@@ -1830,7 +1963,7 @@ function setPrintMeta() {
 
 function replaceCanvasWithImage() {
     _printBackups = [];
-    const canvasIds = ['guestRepeatChart', 'salesChart', 'categoryChart', 'orderDistChart', 'amountDistChart', 'memberCompChart',
+    const canvasIds = ['guestRepeatChart', 'salesChart', 'categoryChart', 'orderDistChart', 'amountDistChart', 'memberCompChart', 'memberRecent3Chart',
                        'momTrendChart', 'momGrowthChart', 'catMonthlyChart', 'pointChart', 'adCostChart'];
 
     canvasIds.forEach(id => {

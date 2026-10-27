@@ -340,6 +340,31 @@
                         <div class="chart-container h-320"><canvas id="orderDistChart"></canvas></div>
                     </div>
                 </div>
+
+                <div class="card allow-break">
+                    <div class="card-head">
+                        <div>
+                            <h3 class="card-title">최근 3개월 회원유형별 매출 비교
+                                <button type="button" class="tip" aria-label="계산 기준 보기"><span class="tip-body">
+                                    <span class="tr"><span class="tl">기준</span>원본 '회원구분' 값(일반회원, 비회원, 기업회원)별 결제금액 합계</span>
+                                    <span class="tr"><span class="tl">기간</span>데이터의 가장 최근 3개월</span>
+                                    <span class="tr"><span class="tl">읽는 법</span>막대 색이 진할수록 최근 달입니다</span>
+                                </span></button>
+                            </h3>
+                            <p class="card-desc">일반회원, 비회원, 기업회원 매출이 최근 3개월 동안 어떻게 달라졌는지 나란히 봅니다.</p>
+                        </div>
+                    </div>
+                    <div id="memberRecent3Summary" class="badge-row"></div>
+                    <div class="chart-container h-340"><canvas id="memberRecent3Chart"></canvas></div>
+                    <div class="table-scroll mt">
+                        <table id="memberRecent3Table">
+                            <thead id="memberRecent3Head"></thead>
+                            <tbody id="memberRecent3Tbody">
+                                <tr><td class="text-center empty-cell">데이터를 업로드하면 표시됩니다.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </section>
 
