@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>매출 분석 대시보드</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-    <link rel="stylesheet" href="style.css?v=20261027c">
+    <link rel="stylesheet" href="style.css?v=20261027d">
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -215,11 +215,11 @@
                 <div class="card card--key allow-break">
                     <div class="card-head">
                         <div>
-                            <h3 class="card-title">월별 비회원, 준회원, 재구매 회원 추이
+                            <h3 class="card-title">월별 비회원 · 일반회원 · 기업회원 추이
                                 <button type="button" class="tip" aria-label="계산 기준 보기"><span class="tip-body">
-                                    <span class="tr"><span class="tl">뜻</span>'회원구분'·'주문자ID'와 '주문횟수' 값으로 고객을 나눠 달마다 얼마나 오는지 봅니다</span>
-                                    <span class="tr"><span class="tl">같은 고객</span>법인/회사명 주문은 휴대폰번호가 달라도 주문자명이 같으면 같은 고객</span>
-                                    <span class="tr"><span class="tl">참고</span>신규(1회)는 그래프에서 빼고 표에만 참고로 보여줍니다</span>
+                                    <span class="tr"><span class="tl">회원유형</span>'회원구분'과 '주문자ID'로 비회원 / 일반회원 / 기업회원을 나눕니다</span>
+                                    <span class="tr"><span class="tl">구매횟수</span>회원은 '주문횟수'로 신규(0~1회) / 재구매(2회 이상)를 다시 나눕니다</span>
+                                    <span class="tr"><span class="tl">읽는 법</span>막대 한 개 = 그 달 전체 주문, 색 칸으로 나눠 쌓았습니다</span>
                                 </span></button>
                             </h3>
                             <p class="card-desc">가장 중요한 지표입니다. 재구매 회원이 늘면 단골이 쌓이고 있다는 뜻이에요.</p>
@@ -241,23 +241,27 @@
                     <ul class="legend-defs">
                         <li><span class="dot" style="background:#D99A2B"></span><b>비회원</b><span>회원구분 '비회원' 또는 ID 'guest'</span>
                             <button type="button" class="tip" aria-label="비회원 기준"><span class="tip-body">
-                                <span class="tr"><span class="tl">기준</span>회원구분이 '비회원'이거나 주문자ID가 'guest'이고, 같은 이름으로 다시 주문한 적이 없는 고객</span>
-                                <span class="tr"><span class="tl">예시</span>회원가입 없이 한 번만 주문한 손님</span>
+                                <span class="tr"><span class="tl">기준</span>회원구분이 '비회원'이거나 주문자ID가 'guest'인 주문</span>
+                                <span class="tr"><span class="tl">참고</span>주문횟수와 관계없이 비회원으로 봅니다</span>
                             </span></button></li>
-                        <li><span class="dot" style="background:#8759B0"></span><b>준회원</b><span>비회원인데 같은 이름으로 반복 주문</span>
-                            <button type="button" class="tip" aria-label="준회원 기준"><span class="tip-body">
-                                <span class="tr"><span class="tl">기준</span>비회원 조건(회원구분 '비회원' 또는 ID 'guest')인 주문이 같은 주문자명으로 2번 이상 나오는 고객</span>
-                                <span class="tr"><span class="tl">뜻</span>가입은 안 했지만 사실상 다시 사는 손님</span>
+                        <li><span class="dot" style="background:#3C6E91"></span><b>일반회원</b><span>신규(연한색) + 재구매(진한색)</span>
+                            <button type="button" class="tip" aria-label="일반회원 기준"><span class="tip-body">
+                                <span class="tr"><span class="tl">기준</span>비회원이 아니고 회원구분에 '기업'이 없는 회원</span>
+                                <span class="tr"><span class="tl">예시</span>일반회원, 개인회원 등</span>
                             </span></button></li>
-                        <li><span class="dot" style="background:#3C6E91"></span><b>재구매 회원</b><span>주문횟수 2회 이상</span>
-                            <button type="button" class="tip" aria-label="재구매 회원 기준"><span class="tip-body">
-                                <span class="tr"><span class="tl">기준</span>비회원이 아니면서 주문횟수가 2회 이상인 회원</span>
-                                <span class="tr"><span class="tl">뜻</span>가입 후 두 번 이상 산 단골 고객</span>
+                        <li><span class="dot" style="background:#2E7A55"></span><b>기업회원</b><span>신규(연한색) + 재구매(진한색)</span>
+                            <button type="button" class="tip" aria-label="기업회원 기준"><span class="tip-body">
+                                <span class="tr"><span class="tl">기준</span>회원구분에 '기업'이 들어간 회원</span>
                             </span></button></li>
-                        <li class="is-ref"><span class="dot" style="background:#A3ADA8"></span><b>신규(1회)</b><span>주문횟수 1회, 참고용</span>
+                        <li><span class="dot" style="background:#8759B0"></span><b>재구매회원</b><span>일반+기업 중 주문횟수 2회 이상</span>
+                            <button type="button" class="tip" aria-label="재구매회원 기준"><span class="tip-body">
+                                <span class="tr"><span class="tl">기준</span>일반회원·기업회원 중 주문횟수가 2회 이상인 주문</span>
+                                <span class="tr"><span class="tl">그래프</span>각 회원유형의 진한색 칸</span>
+                            </span></button></li>
+                        <li><span class="dot" style="background:#A3ADA8"></span><b>신규(1회)</b><span>일반+기업 중 주문횟수 0~1회</span>
                             <button type="button" class="tip" aria-label="신규 기준"><span class="tip-body">
-                                <span class="tr"><span class="tl">기준</span>주문횟수가 정확히 1회인 첫 구매 회원</span>
-                                <span class="tr"><span class="tl">참고</span>그래프에는 없고 아래 표에만 표시됩니다</span>
+                                <span class="tr"><span class="tl">기준</span>일반회원·기업회원 중 주문횟수가 0~1회인 주문</span>
+                                <span class="tr"><span class="tl">그래프</span>각 회원유형의 연한색 칸</span>
                             </span></button></li>
                     </ul>
 
@@ -272,39 +276,32 @@
                                     <th class="text-center" rowspan="2">실제 주문자수
                                         <button type="button" class="tip" aria-label="기준 보기"><span class="tip-body">
                                             <span class="tr"><span class="tl">뜻</span>그 달에 주문한 모든 사람 수 (같은 사람은 1명)</span>
-                                            <span class="tr"><span class="tl">참고</span>신규(1회)도 포함되어 세 그룹 인원 합보다 클 수 있어요</span>
                                         </span></button>
                                     </th>
-                                    <th class="text-center col-group" colspan="3">비회원</th>
-                                    <th class="text-center col-group" colspan="3">준회원</th>
-                                    <th class="text-center col-group" colspan="3">재구매 회원</th>
-                                    <th class="text-center col-group" rowspan="2">신규(1회)<br>실제 인원
+                                    <th class="text-center col-group" rowspan="2">비회원</th>
+                                    <th class="text-center col-group" colspan="2">일반회원</th>
+                                    <th class="text-center col-group" colspan="2">기업회원</th>
+                                    <th class="text-center col-group" colspan="2">합계 (일반+기업)</th>
+                                    <th class="text-center col-group" rowspan="2">회원 중<br>재구매 비중
                                         <button type="button" class="tip" aria-label="기준 보기"><span class="tip-body">
-                                            <span class="tr"><span class="tl">뜻</span>주문횟수 1회 고객 수 (참고용)</span>
-                                        </span></button>
-                                    </th>
-                                    <th class="text-center" rowspan="2">재구매 비중
-                                        <button type="button" class="tip" aria-label="기준 보기"><span class="tip-body">
-                                            <span class="tr"><span class="tl">계산</span>재구매 회원 실제 인원 ÷ 실제 주문자수 × 100</span>
+                                            <span class="tr"><span class="tl">계산</span>재구매회원 인원 ÷ (일반회원 + 기업회원 인원) × 100</span>
                                         </span></button>
                                     </th>
                                 </tr>
                                 <tr>
-                                    <th class="text-right col-group">주문건수</th>
-                                    <th class="text-right">실제 인원</th>
-                                    <th class="text-right">매출</th>
-                                    <th class="text-right col-group">주문건수</th>
-                                    <th class="text-right">실제 인원</th>
-                                    <th class="text-right">매출</th>
-                                    <th class="text-right col-group">주문건수</th>
-                                    <th class="text-right">실제 인원</th>
-                                    <th class="text-right">매출</th>
+                                    <th class="text-right col-group">신규(1회)</th>
+                                    <th class="text-right">재구매</th>
+                                    <th class="text-right col-group">신규(1회)</th>
+                                    <th class="text-right">재구매</th>
+                                    <th class="text-right col-group">재구매회원</th>
+                                    <th class="text-right">신규(1회)</th>
                                 </tr>
                             </thead>
                             <tbody id="guestRepeatTbody">
-                                <tr><td colspan="13" class="text-center empty-cell">데이터를 업로드하면 표시됩니다.</td></tr>
+                                <tr><td colspan="10" class="text-center empty-cell">데이터를 업로드하면 표시됩니다.</td></tr>
                             </tbody>
                         </table>
+                        <p class="card-desc" style="padding:8px 14px;margin:0;">칸마다 위는 매출, 아래는 주문건수 · 실제 인원입니다.</p>
                     </div>
                 </div>
 
@@ -678,6 +675,6 @@
     </div>
 </div>
 
-<script src="app.js?v=20261027c"></script>
+<script src="app.js?v=20261027d"></script>
 </body>
 </html>

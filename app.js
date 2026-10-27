@@ -132,7 +132,7 @@ const FIELD_ALIASES = {
     adCost:     ['광고비', '광고비용', '광고집행비', '마케팅비', '광고단가']
 };
 
-const APP_VERSION = '20261027c';
+const APP_VERSION = '20261027d';
 console.log('[매출 분석] app.js 버전', APP_VERSION);
 let rawData = [];
 let tempSheetData = [];
@@ -456,6 +456,14 @@ function isGuestRow(nr) {
     return false;
 }
 
+// 회원 분류: 비회원 / 일반·신규 / 일반·재구매 / 기업·신규 / 기업·재구매
+function classifyMemberSegment(nr, orderCnt) {
+    if (isGuestRow(nr)) return '비회원';
+    const type = nr.회원구분 != null ? String(nr.회원구분).replace(/\s+/g, '') : '';
+    const tier = type.includes('기업') ? '기업' : '일반';
+    return `${tier}·${orderCnt >= 2 ? '재구매' : '신규'}`;
+}
+
 // 고객 식별 키: 주문자명 우선 (없으면 주문자ID)
 // ※ 법인/회사명 주문의 경우처럼 같은 이름(회사명)에 휴대폰번호 등 다른 정보가 달라도
 //   '주문자명'이 일치하면 동일 고객(동일인)으로 간주합니다. (휴대폰번호는 식별에 사용하지 않음)
@@ -464,7 +472,7 @@ function customerKey(nr) {
     if (name) return name;
     const id = nr.주문자ID != null ? String(nr.주문자ID).replace(/\s+/g, '').trim() : '';
     // 'guest'는 모든 비회원이 함께 쓰는 공용 ID라 사람을 구분할 수 없음
-    // → 주문자명이 없으면 주문 1건을 각각 다른 고객으로 본다 (전부 한 사람으로 합쳐져 준회원이 되는 문제 방지)
+    // → 주문자명이 없으면 주문 1건을 각각 다른 고객으로 본다 (guest 주문이 전부 한 사람으로 합쳐지는 문제 방지)
     if (!id || id.toLowerCase() === 'guest') {
         // 주문번호는 18자리라 숫자로 읽히면 끝자리가 뭉개질 수 있어 '번호'와 함께 사용
         const parts = [nr.번호, nr.주문번호].filter(v => v != null && String(v).trim() !== '').map(v => String(v).trim());
@@ -494,10 +502,6 @@ function processData() {
     });
     analyzedData.firstMonth = firstMonth;
 
-    // ── 비회원/준회원/재구매회원 판별을 위한 사전 집계 ──
-    // 비회원 주문(회원구분 '비회원' 또는 주문자ID 'guest')을 주문자명 기준으로 몇 번 나오는지 먼저 세어둔다.
-    // (같은 이름의 비회원 주문이 2번 이상 = 회원가입 없이 반복 주문한 '준회원')
-    const guestNameCount = {};
     // 화면 안내용 진단 정보: 어떤 컬럼을 찾았고, 회원구분에 어떤 값이 있는지
     const diag = { rows: 0, guestRows: 0, memberTypeCol: false, idCol: null, memberValues: {}, keys: [] };
     rawData.slice(0, 1).forEach(r => { diag.keys = Object.keys(normalizeRow(r)); });
@@ -512,12 +516,6 @@ function processData() {
         if (isGuestRow(nr)) diag.guestRows++;
     });
     analyzedData.guestDiag = diag;
-    rawData.forEach(row => {
-        const nr = normalizeRow(row);
-        if (!nr.주문일시 || !isGuestRow(nr)) return;
-        const uid = customerKey(nr);
-        guestNameCount[uid] = (guestNameCount[uid] || 0) + 1;
-    });
 
     rawData.forEach(row => {
         const nr = normalizeRow(row);
@@ -555,31 +553,16 @@ function processData() {
         monthly[m].memberTypes[type].amount += amt; monthly[m].memberTypes[type].count += 1;
         if (orderCnt <= 1) { monthly[m].memberTypes[type].newAmount += amt; monthly[m].memberTypes[type].newCount += 1; }
 
-        // ── 비회원 / 준회원 / 재구매회원 / 신규(1회) 분류 (주문횟수 기준) ──
-        // 회원구분 '비회원' 또는 주문자ID 'guest' → 비회원 (같은 주문자명으로 반복되면 준회원)
-        // 주문횟수 2 이상 → 재구매회원
-        // 주문횟수 1 → 신규(1회) (참고용으로 별도 집계. 메인 3분류 차트에는 표시하지 않지만
-        //              '실제 주문자수' 합계 및 표에는 반영하여 전체 인원과 정확히 일치시킴)
+        // ── 회원 분류 (회원유형 × 구매횟수) ──
+        // 비회원: 회원구분 '비회원' 또는 주문자ID 'guest'
+        // 그 외: 회원구분에 '기업'이 들어가면 기업회원, 아니면 일반회원
+        //        주문횟수 2회 이상 → 재구매, 0~1회 → 신규(1회)
         if (!monthly[m].guestClass) {
-            monthly[m].guestClass = {
-                '비회원': { amount: 0, count: 0, users: new Set() },
-                '준회원': { amount: 0, count: 0, users: new Set() },
-                '재구매회원': { amount: 0, count: 0, users: new Set() },
-                '신규(1회)': { amount: 0, count: 0, users: new Set() }
-            };
+            monthly[m].guestClass = {};
+            GUEST_CLASS_KEYS.forEach(k => { monthly[m].guestClass[k] = { amount: 0, count: 0, users: new Set() }; });
         }
-        let guestClassKey = null;
-        if (isGuestRow(nr)) {
-            guestClassKey = (guestNameCount[uid] > 1) ? '준회원' : '비회원';
-        } else if (orderCnt >= 2) {
-            guestClassKey = '재구매회원';
-        } else {
-            guestClassKey = '신규(1회)';
-        }
-        if (guestClassKey) {
-            const gc = monthly[m].guestClass[guestClassKey];
-            gc.amount += amt; gc.count += 1; gc.users.add(uid);
-        }
+        const gc = monthly[m].guestClass[classifyMemberSegment(nr, orderCnt)];
+        gc.amount += amt; gc.count += 1; gc.users.add(uid);
 
         const cat = ( (nr.상품명 || "").match(/\[(.*?)\]/) || [null, "기타"] )[1];
         categories[cat] = (categories[cat] || 0) + amt;
@@ -1375,56 +1358,65 @@ function renderAmountDistChart() {
     }
 }
 
-// ── 0. 월별 비회원 · 준회원 · 재구매 회원 추이 (핵심 지표) ──
-// 판별 기준 (주문횟수/Q열 기준):
-//   - 회원구분 '비회원' 또는 주문자ID 'guest'          → 비회원
-//   - 위 비회원 조건 & 동일 주문자명이 반복 등장       → 준회원 (미가입 상태로 반복 주문한 고객)
-//   - 주문횟수 2 이상                          → 재구매 회원
-//   (주문횟수 1은 신규 1회 구매 고객으로 이 분류에서 제외)
-const GUEST_CLASS_KEYS = ['비회원', '준회원', '재구매회원'];
+// ── 0. 월별 회원 분류 추이 (핵심 지표) ──
+// 분류 기준 (주문 1건 단위):
+//   - 비회원        : 회원구분 '비회원' 또는 주문자ID 'guest'
+//   - 일반·신규     : 일반회원, 주문횟수 0~1회      - 일반·재구매 : 일반회원, 주문횟수 2회 이상
+//   - 기업·신규     : 기업회원, 주문횟수 0~1회      - 기업·재구매 : 기업회원, 주문횟수 2회 이상
+// 다섯 묶음은 서로 겹치지 않아 합계 = 전체 주문
+const GUEST_CLASS_KEYS = ['비회원', '일반·신규', '일반·재구매', '기업·신규', '기업·재구매'];
+const GUEST_CLASS_LABEL = {
+    '비회원': '비회원',
+    '일반·신규': '일반회원 · 신규(1회)', '일반·재구매': '일반회원 · 재구매',
+    '기업·신규': '기업회원 · 신규(1회)', '기업·재구매': '기업회원 · 재구매'
+};
 const GUEST_CLASS_COLORS = {
-    '비회원':   { border: '#D99A2B', bg: 'rgba(217,154,43,0.85)' },
-    '준회원':   { border: '#8759B0', bg: 'rgba(135,89,176,0.85)' },
-    '재구매회원': { border: '#3C6E91', bg: 'rgba(60,110,145,0.9)' }
+    '비회원':     { border: '#D99A2B', bg: 'rgba(217,154,43,0.88)' },
+    '일반·신규':  { border: '#7FA9C9', bg: 'rgba(160,196,222,0.95)' },
+    '일반·재구매': { border: '#3C6E91', bg: 'rgba(60,110,145,0.92)' },
+    '기업·신규':  { border: '#6FB08A', bg: 'rgba(170,215,186,0.95)' },
+    '기업·재구매': { border: '#2E7A55', bg: 'rgba(46,122,85,0.92)' }
+};
+// 배지·표에서 쓰는 합계 묶음
+const GUEST_GROUPS = {
+    '비회원':     { keys: ['비회원'], color: '#D99A2B', tip: "회원구분 '비회원' 또는 주문자ID 'guest'" },
+    '일반회원':   { keys: ['일반·신규', '일반·재구매'], color: '#3C6E91', tip: "회원구분이 '기업'이 아닌 회원 (신규+재구매)" },
+    '기업회원':   { keys: ['기업·신규', '기업·재구매'], color: '#2E7A55', tip: "회원구분에 '기업'이 들어간 회원 (신규+재구매)" },
+    '재구매회원': { keys: ['일반·재구매', '기업·재구매'], color: '#8759B0', tip: '일반+기업회원 중 주문횟수 2회 이상' },
+    '신규(1회)':  { keys: ['일반·신규', '기업·신규'], color: '#A3ADA8', tip: '일반+기업회원 중 주문횟수 0~1회' }
 };
 
 function computeGuestRepeatSeries(ms) {
     const series = {};
     GUEST_CLASS_KEYS.forEach(k => { series[k] = { amounts: [], counts: [], users: [] }; });
-    const newOnce = { amounts: [], counts: [], users: [] }; // 신규(1회) 참고용 집계
-    const totalAmounts = [];
-    const totalUniqueUsers = []; // 월별 실제 주문자수 (해당 월 전체 주문자, 중복 제외 — 신규 1회 구매 고객 포함)
+    const groups = {};
+    Object.keys(GUEST_GROUPS).forEach(g => { groups[g] = { amounts: [], counts: [], users: [] }; });
+    const totalAmounts = [], totalUniqueUsers = [];
+    const empty = { amount: 0, count: 0, users: new Set() };
 
     ms.forEach(m => {
         const data = analyzedData.monthly[m];
         const gc = data.guestClass || {};
         GUEST_CLASS_KEYS.forEach(k => {
-            const s = gc[k] || { amount: 0, count: 0, users: new Set() };
+            const s = gc[k] || empty;
             series[k].amounts.push(s.amount);
             series[k].counts.push(s.count);
-            series[k].users.push(s.users ? s.users.size : 0);
+            series[k].users.push(s.users.size);
         });
-        const no = gc['신규(1회)'] || { amount: 0, count: 0, users: new Set() };
-        newOnce.amounts.push(no.amount);
-        newOnce.counts.push(no.count);
-        newOnce.users.push(no.users ? no.users.size : 0);
-
+        Object.entries(GUEST_GROUPS).forEach(([g, def]) => {
+            const parts = def.keys.map(k => gc[k] || empty);
+            const u = new Set(); parts.forEach(p => p.users.forEach(x => u.add(x)));
+            groups[g].amounts.push(parts.reduce((s, p) => s + p.amount, 0));
+            groups[g].counts.push(parts.reduce((s, p) => s + p.count, 0));
+            groups[g].users.push(u.size);
+        });
         totalAmounts.push(data.totalAmount);
-        // 주의: 비회원/준회원/재구매회원 3개 카테고리의 합만 세면
-        // 주문횟수가 정확히 1회(신규 첫 구매)인 고객이 빠져 실제보다 적게 집계됩니다.
-        // 따라서 해당 월에 실제로 주문한 전체 고유 고객 수(monthly[m].users)를 그대로 사용합니다.
         totalUniqueUsers.push(data.users ? data.users.size : 0);
     });
-
-    return { series, newOnce, totalAmounts, totalUniqueUsers };
+    return { series, groups, totalAmounts, totalUniqueUsers };
 }
 
-const GUEST_TOTAL_TIP = tipRow('뜻', '그 달에 주문한 모든 사람 수 (같은 사람은 1명)') + tipRow('참고', '신규(1회) 고객도 포함');
-const GUEST_CLASS_TIPS = {
-    '비회원': tipRow('기준', "회원구분 '비회원' 또는 주문자ID 'guest', 같은 이름으로 반복 주문 없음"),
-    '준회원': tipRow('기준', "비회원 주문인데 같은 주문자명으로 2번 이상 주문"),
-    '재구매회원': tipRow('기준', '주문횟수 2회 이상')
-};
+const GUEST_TOTAL_TIP = tipRow('뜻', '그 달에 주문한 모든 사람 수 (같은 사람은 1명)');
 
 let guestRepeatViewMode = 'count'; // 'count' | 'amount' | 'users'
 const GUEST_MODE_UNIT = { count: '건', amount: '원', users: '명' };
@@ -1469,39 +1461,36 @@ function renderGuestRepeatChart() {
         if (charts.guestRepeat) { charts.guestRepeat.destroy(); charts.guestRepeat = null; }
         showChartEmpty('guestRepeatChart', 'guestRepeatChart');
         if (summary) summary.innerHTML = '';
-        if (tbody) tbody.innerHTML = `<tr><td colspan="13" class="text-center">데이터를 업로드하면 표시됩니다.</td></tr>`;
+        if (tbody) tbody.innerHTML = `<tr><td colspan="10" class="text-center empty-cell">데이터를 업로드하면 표시됩니다.</td></tr>`;
         return;
     }
     hideChartEmpty('guestRepeatChart', 'guestRepeatChart');
 
-    const { series, newOnce, totalUniqueUsers } = computeGuestRepeatSeries(ms);
+    const { series, groups, totalUniqueUsers } = computeGuestRepeatSeries(ms);
     const li = ms.length - 1;
     const mode = guestRepeatViewMode;
     const unit = GUEST_MODE_UNIT[mode];
-    const seriesFor = key => mode === 'amount' ? series[key].amounts : (mode === 'users' ? series[key].users : series[key].counts);
+    const pick = obj => mode === 'amount' ? obj.amounts : (mode === 'users' ? obj.users : obj.counts);
 
     // 요약 배지 (당월 기준)
     if (summary) {
-        const curTotal = mode === 'users' ? totalUniqueUsers[li] : (seriesFor('비회원')[li] + seriesFor('준회원')[li] + seriesFor('재구매회원')[li]);
-        const repeatShare = curTotal ? (seriesFor('재구매회원')[li] / curTotal * 100) : 0;
-        let badges = `<div class="comp-label">기준: <b>${ms[li]}</b>${ms.length >= 2 ? ` vs 전월 <b>${ms[li - 1]}</b>` : ''} (단위: ${GUEST_MODE_LABEL[mode]})</div>`;
-        badges += ms.length >= 2
-            ? diffBadge(totalUniqueUsers[li], totalUniqueUsers[li - 1], '명', '실제 주문자수', GUEST_TOTAL_TIP)
-            : `<div class="comp-badge" style="border-left:3px solid #6B7772;"><span class="comp-type">실제 주문자수${tip(GUEST_TOTAL_TIP)}</span><span class="comp-cur">${totalUniqueUsers[li].toLocaleString()}명</span></div>`;
-        GUEST_CLASS_KEYS.forEach(key => {
-            const cur = seriesFor(key)[li];
-            const pre = ms.length >= 2 ? seriesFor(key)[li - 1] : 0;
-            const color = GUEST_CLASS_COLORS[key].border;
-            badges += ms.length >= 2
-                ? diffBadge(cur, pre, unit, key, GUEST_CLASS_TIPS[key])
-                : `<div class="comp-badge" style="border-left:3px solid ${color};"><span class="comp-type">${key}${tip(GUEST_CLASS_TIPS[key])}</span><span class="comp-cur">${cur.toLocaleString()}${unit}</span></div>`;
+        const has2 = ms.length >= 2;
+        const badge = (label, curArr, u, color, tipHtml) => has2
+            ? diffBadge(curArr[li], curArr[li - 1], u, label, tipHtml)
+            : `<div class="comp-badge" style="border-left:3px solid ${color};"><span class="comp-type">${label}${tip(tipHtml)}</span><span class="comp-cur">${curArr[li].toLocaleString()}${u}</span></div>`;
+        let html = `<div class="comp-label">기준: <b>${ms[li]}</b>${has2 ? ` vs 전월 <b>${ms[li - 1]}</b>` : ''} (단위: ${GUEST_MODE_LABEL[mode]})</div>`;
+        html += badge('실제 주문자수', totalUniqueUsers, '명', '#6B7772', GUEST_TOTAL_TIP);
+        Object.entries(GUEST_GROUPS).forEach(([g, def]) => {
+            html += badge(g, pick(groups[g]), unit, def.color, tipRow('기준', def.tip));
         });
-        badges += `<div class="comp-badge" style="border-left:3px solid #4FA676;">
-                <span class="comp-type">재구매 회원 비중${tip(tipRow('계산', `재구매 회원 ÷ 당월 합계 × 100 (${GUEST_MODE_LABEL[mode]} 기준)`) + tipRow('참고', '위 보기 단위(건수/인원/금액)를 바꾸면 기준도 바뀝니다'))}</span>
-                <span class="comp-cur">${repeatShare.toFixed(1)}%</span>
-                <span class="comp-diff" style="color:var(--secondary);">당월 ${GUEST_MODE_LABEL[mode]} 대비</span>
+        const memberTotal = pick(groups['일반회원'])[li] + pick(groups['기업회원'])[li];
+        const share = memberTotal ? pick(groups['재구매회원'])[li] / memberTotal * 100 : 0;
+        html += `<div class="comp-badge" style="border-left:3px solid #8759B0;">
+                <span class="comp-type">회원 중 재구매 비중${tip(tipRow('계산', `재구매회원 ÷ (일반회원+기업회원) × 100 (${GUEST_MODE_LABEL[mode]} 기준)`) + tipRow('참고', '비회원은 제외하고 계산합니다'))}</span>
+                <span class="comp-cur">${share.toFixed(1)}%</span>
+                <span class="comp-diff" style="color:var(--secondary);">당월 ${GUEST_MODE_LABEL[mode]} 기준</span>
             </div>`;
-        summary.innerHTML = badges;
+        summary.innerHTML = html;
     }
 
     if (ctx) {
@@ -1511,13 +1500,13 @@ function renderGuestRepeatChart() {
             data: {
                 labels: ms,
                 datasets: GUEST_CLASS_KEYS.map(key => ({
-                    label: key,
-                    data: seriesFor(key),
+                    label: GUEST_CLASS_LABEL[key],
+                    data: pick(series[key]),
                     borderColor: GUEST_CLASS_COLORS[key].border,
                     backgroundColor: GUEST_CLASS_COLORS[key].bg,
-                    borderWidth: 1.5,
-                    borderRadius: 4,
-                    maxBarThickness: 34
+                    borderWidth: 1,
+                    borderRadius: 2,
+                    maxBarThickness: 40
                 }))
             },
             options: {
@@ -1525,34 +1514,38 @@ function renderGuestRepeatChart() {
                 maintainAspectRatio: false,
                 interaction: { mode: 'index', intersect: false },
                 scales: {
+                    x: { stacked: true, ticks: monthTicks(ms) },
                     y: {
+                        stacked: true,
                         beginAtZero: true,
                         ticks: { callback: v => mode === 'amount' ? shortWon(v) : v.toLocaleString() },
                         title: { display: true, text: mode === 'amount' ? '매출액 (원)' : (mode === 'users' ? '실제 인원수 (명)' : '주문건수 (건)'), color: '#6B7772', font: { size: 11 } }
-                    },
-                    x: { ticks: monthTicks(ms) }
+                    }
                 },
                 plugins: {
                     legend: { position: 'top' },
-                    tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${c.parsed.y.toLocaleString()}${unit}` } }
+                    tooltip: { callbacks: {
+                        label: c => ` ${c.dataset.label}: ${c.parsed.y.toLocaleString()}${unit}`,
+                        footer: items => mode === 'users' ? '' : `합계: ${items.reduce((s, i) => s + i.parsed.y, 0).toLocaleString()}${unit}`
+                    } }
                 }
             }
         });
     }
 
-    // 표(수치) 렌더링 — 월별 비회원/준회원/재구매회원 주문건수·실제인원·매출액
+    // 표: 칸마다 매출 + (주문건수 · 실제 인원)
     if (tbody) {
+        const cell = (obj, i, cls = '') => `<td class="text-right ${cls}">${obj.amounts[i].toLocaleString()}원<div class="cat-sub">${obj.counts[i].toLocaleString()}건 · ${obj.users[i].toLocaleString()}명</div></td>`;
         tbody.innerHTML = ms.map((m, i) => {
-            const cells = GUEST_CLASS_KEYS.map(key => {
-                const c = series[key].counts[i];
-                const u = series[key].users[i];
-                const a = series[key].amounts[i];
-                return `<td class="text-right">${c.toLocaleString()}건</td><td class="text-right">${u.toLocaleString()}명</td><td class="text-right">${a.toLocaleString()}원</td>`;
-            }).join('');
-            const actualUsers = totalUniqueUsers[i];
-            const repeatShare = actualUsers ? (series['재구매회원'].users[i] / actualUsers * 100).toFixed(1) : '0.0';
-            const newOnceUsers = newOnce.users[i];
-            return `<tr><td class="text-center">${m}</td><td class="text-right" style="font-weight:700; background:var(--surface-2);">${actualUsers.toLocaleString()}명</td>${cells}<td class="text-right" style="color:var(--secondary);">${newOnceUsers.toLocaleString()}명</td><td class="text-right">${repeatShare}%</td></tr>`;
+            const memberUsers = groups['일반회원'].users[i] + groups['기업회원'].users[i];
+            const share = memberUsers ? (groups['재구매회원'].users[i] / memberUsers * 100).toFixed(1) : '0.0';
+            return `<tr><td class="text-center">${m}</td>
+                <td class="text-right" style="font-weight:700; background:var(--surface-2);">${totalUniqueUsers[i].toLocaleString()}명</td>
+                ${cell(series['비회원'], i, 'col-group')}
+                ${cell(series['일반·신규'], i, 'col-group')}${cell(series['일반·재구매'], i)}
+                ${cell(series['기업·신규'], i, 'col-group')}${cell(series['기업·재구매'], i)}
+                ${cell(groups['재구매회원'], i, 'col-group')}${cell(groups['신규(1회)'], i)}
+                <td class="text-right col-group">${share}%</td></tr>`;
         }).join('');
     }
 }
@@ -1870,7 +1863,7 @@ function renderReportTable() {
     }).join('');
 }
 
-// 비회원/준회원/재구매회원 차트 건수/금액 전환
+// 회원 분류 차트 건수/인원/금액 전환
 document.querySelectorAll('.toggle-btn[data-guest-mode]').forEach(btn => {
     btn.addEventListener('click', () => {
         guestRepeatViewMode = btn.getAttribute('data-guest-mode');
@@ -1973,6 +1966,16 @@ document.getElementById('downloadBtn')?.addEventListener('click', () => {
             c.newCount ? Math.round(ad / c.newCount) : 0]);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(adRows), "7. 광고비 집행");
+
+    // 9. 회원 분류 월별 (비회원 / 일반·기업 × 신규·재구매)
+    const segMonths = Object.keys(analyzedData.monthly).sort();
+    if (segMonths.length) {
+        const { series: sg, groups: gg } = computeGuestRepeatSeries(segMonths);
+        const segCols = [...GUEST_CLASS_KEYS.map(k => [GUEST_CLASS_LABEL[k], sg[k]]), ['재구매회원(합계)', gg['재구매회원']], ['신규(1회)(합계)', gg['신규(1회)']]];
+        const segRows = [['월', ...segCols.flatMap(([n]) => [`${n} 건수`, `${n} 인원`, `${n} 매출`])]];
+        segMonths.forEach((m, i) => segRows.push([m, ...segCols.flatMap(([, o]) => [o.counts[i], o.users[i], o.amounts[i]])]));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(segRows), "9. 회원 분류 월별");
+    }
 
     // 8. 최근 3개월 회원유형별 매출
     const r3 = getRecent3MemberData();

@@ -411,7 +411,7 @@ button { font-family: inherit; }
 }
 .tip-bubble b { color: #fff; }
 
-/* ─────────── 범례 설명 (비회원/준회원 등) ─────────── */
+/* ─────────── 범례 설명 (비회원/일반/기업 등) ─────────── */
 .legend-defs {
     display: flex;
     flex-wrap: wrap;
@@ -567,8 +567,6 @@ tbody tr:last-child td { border-bottom: 0; }
 tbody tr:hover td { background-color: #FAFCFB; }
 .col-group { border-left: 1px solid var(--line); }
 #guestRepeatTable thead tr:first-child th { border-bottom: 1px solid var(--line); }
-#guestRepeatTable td:nth-child(3), #guestRepeatTable td:nth-child(6),
-#guestRepeatTable td:nth-child(9), #guestRepeatTable td:nth-child(12) { border-left: 1px solid var(--line); }
 .empty-cell { padding: 28px 14px; color: var(--ink-3); }
 
 .subtotal-row td {
