@@ -439,6 +439,20 @@ if (uploadZone) {
     }, false);
 }
 
+// 비회원 판별: 회원구분이 '비회원'이거나, 주문자 ID가 'guest'인 주문
+// (주문자ID 컬럼명은 '주문자ID', '주문자 ID', '주문자아이디', '회원ID', '아이디', 'ID' 등을 모두 인식)
+const GUEST_ID_KEY_RE = /^(주문자|회원|구매자)?(id|아이디)$/i;
+function isGuestRow(nr) {
+    const memberType = nr.회원구분 != null ? String(nr.회원구분).replace(/\s+/g, '') : '';
+    if (memberType.includes('비회원')) return true;
+    for (const k of Object.keys(nr)) {
+        if (!GUEST_ID_KEY_RE.test(k)) continue;
+        const v = nr[k] != null ? String(nr[k]).trim().toLowerCase() : '';
+        if (v === 'guest') return true;
+    }
+    return false;
+}
+
 // 고객 식별 키: 주문자명 우선 (없으면 주문자ID)
 // ※ 법인/회사명 주문의 경우처럼 같은 이름(회사명)에 휴대폰번호 등 다른 정보가 달라도
 //   '주문자명'이 일치하면 동일 고객(동일인)으로 간주합니다. (휴대폰번호는 식별에 사용하지 않음)
@@ -470,18 +484,14 @@ function processData() {
     analyzedData.firstMonth = firstMonth;
 
     // ── 비회원/준회원/재구매회원 판별을 위한 사전 집계 ──
-    // 주문횟수(Q열)가 0인 행들을 주문자명 기준으로 전체 데이터에서 몇 번 나오는지 먼저 세어둔다.
-    // (같은 이름이 주문횟수 0으로 2번 이상 나오면 = 회원가입 없이 반복 주문한 '준회원')
-    const zeroOrderNameCount = {};
+    // 비회원 주문(회원구분 '비회원' 또는 주문자ID 'guest')을 주문자명 기준으로 몇 번 나오는지 먼저 세어둔다.
+    // (같은 이름의 비회원 주문이 2번 이상 = 회원가입 없이 반복 주문한 '준회원')
+    const guestNameCount = {};
     rawData.forEach(row => {
         const nr = normalizeRow(row);
-        if (!nr.주문일시) return;
+        if (!nr.주문일시 || !isGuestRow(nr)) return;
         const uid = customerKey(nr);
-        const rawOrderCnt = nr.주문횟수;
-        const orderCnt = (rawOrderCnt !== undefined && rawOrderCnt !== null && rawOrderCnt !== '')
-            ? parseFloat(String(rawOrderCnt).replace(/,/g, '')) || 0
-            : userHistory[uid];
-        if (orderCnt === 0) zeroOrderNameCount[uid] = (zeroOrderNameCount[uid] || 0) + 1;
+        guestNameCount[uid] = (guestNameCount[uid] || 0) + 1;
     });
 
     rawData.forEach(row => {
@@ -521,7 +531,7 @@ function processData() {
         if (orderCnt <= 1) { monthly[m].memberTypes[type].newAmount += amt; monthly[m].memberTypes[type].newCount += 1; }
 
         // ── 비회원 / 준회원 / 재구매회원 / 신규(1회) 분류 (주문횟수 기준) ──
-        // 주문횟수 0 → 비회원 (단, 동일 주문자명이 주문횟수 0으로 반복되면 준회원)
+        // 회원구분 '비회원' 또는 주문자ID 'guest' → 비회원 (같은 주문자명으로 반복되면 준회원)
         // 주문횟수 2 이상 → 재구매회원
         // 주문횟수 1 → 신규(1회) (참고용으로 별도 집계. 메인 3분류 차트에는 표시하지 않지만
         //              '실제 주문자수' 합계 및 표에는 반영하여 전체 인원과 정확히 일치시킴)
@@ -534,8 +544,8 @@ function processData() {
             };
         }
         let guestClassKey = null;
-        if (orderCnt === 0) {
-            guestClassKey = (zeroOrderNameCount[uid] > 1) ? '준회원' : '비회원';
+        if (isGuestRow(nr)) {
+            guestClassKey = (guestNameCount[uid] > 1) ? '준회원' : '비회원';
         } else if (orderCnt >= 2) {
             guestClassKey = '재구매회원';
         } else {
@@ -1340,8 +1350,8 @@ function renderAmountDistChart() {
 
 // ── 0. 월별 비회원 · 준회원 · 재구매 회원 추이 (핵심 지표) ──
 // 판별 기준 (주문횟수/Q열 기준):
-//   - 주문횟수 0                              → 비회원
-//   - 주문횟수 0 & 동일 주문자명이 반복 등장  → 준회원 (미가입 상태로 반복 주문한 고객)
+//   - 회원구분 '비회원' 또는 주문자ID 'guest'          → 비회원
+//   - 위 비회원 조건 & 동일 주문자명이 반복 등장       → 준회원 (미가입 상태로 반복 주문한 고객)
 //   - 주문횟수 2 이상                          → 재구매 회원
 //   (주문횟수 1은 신규 1회 구매 고객으로 이 분류에서 제외)
 const GUEST_CLASS_KEYS = ['비회원', '준회원', '재구매회원'];
@@ -1384,8 +1394,8 @@ function computeGuestRepeatSeries(ms) {
 
 const GUEST_TOTAL_TIP = tipRow('뜻', '그 달에 주문한 모든 사람 수 (같은 사람은 1명)') + tipRow('참고', '신규(1회) 고객도 포함');
 const GUEST_CLASS_TIPS = {
-    '비회원': tipRow('기준', '주문횟수 0회, 같은 이름으로 반복 주문 없음'),
-    '준회원': tipRow('기준', '주문횟수 0회인데 같은 주문자명으로 2번 이상 주문'),
+    '비회원': tipRow('기준', "회원구분 '비회원' 또는 주문자ID 'guest', 같은 이름으로 반복 주문 없음"),
+    '준회원': tipRow('기준', "비회원 주문인데 같은 주문자명으로 2번 이상 주문"),
     '재구매회원': tipRow('기준', '주문횟수 2회 이상')
 };
 
