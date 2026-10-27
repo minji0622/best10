@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>매출 분석 대시보드</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=20261027c">
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -261,6 +261,7 @@
                             </span></button></li>
                     </ul>
 
+                    <div id="guestNotice" class="field-notice"></div>
                     <div id="guestRepeatSummary" class="badge-row"></div>
                     <div class="chart-container h-340"><canvas id="guestRepeatChart"></canvas></div>
                     <div class="table-scroll mt">
@@ -354,6 +355,7 @@
                             <p class="card-desc">일반회원, 비회원, 기업회원 매출이 최근 3개월 동안 어떻게 달라졌는지 나란히 봅니다.</p>
                         </div>
                     </div>
+                    <div id="memberRecent3Notice" class="field-notice"></div>
                     <div id="memberRecent3Summary" class="badge-row"></div>
                     <div class="chart-container h-340"><canvas id="memberRecent3Chart"></canvas></div>
                     <div class="table-scroll mt">
@@ -676,6 +678,6 @@
     </div>
 </div>
 
-<script src="app.js"></script>
+<script src="app.js?v=20261027c"></script>
 </body>
 </html>

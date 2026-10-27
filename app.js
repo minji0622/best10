@@ -132,6 +132,8 @@ const FIELD_ALIASES = {
     adCost:     ['광고비', '광고비용', '광고집행비', '마케팅비', '광고단가']
 };
 
+const APP_VERSION = '20261027c';
+console.log('[매출 분석] app.js 버전', APP_VERSION);
 let rawData = [];
 let tempSheetData = [];
 let tempHeaders = [];
@@ -496,6 +498,20 @@ function processData() {
     // 비회원 주문(회원구분 '비회원' 또는 주문자ID 'guest')을 주문자명 기준으로 몇 번 나오는지 먼저 세어둔다.
     // (같은 이름의 비회원 주문이 2번 이상 = 회원가입 없이 반복 주문한 '준회원')
     const guestNameCount = {};
+    // 화면 안내용 진단 정보: 어떤 컬럼을 찾았고, 회원구분에 어떤 값이 있는지
+    const diag = { rows: 0, guestRows: 0, memberTypeCol: false, idCol: null, memberValues: {}, keys: [] };
+    rawData.slice(0, 1).forEach(r => { diag.keys = Object.keys(normalizeRow(r)); });
+    diag.memberTypeCol = diag.keys.includes('회원구분');
+    diag.idCol = diag.keys.find(k => GUEST_ID_KEY_RE.test(k)) || null;
+    rawData.forEach(row => {
+        const nr = normalizeRow(row);
+        if (!nr.주문일시) return;
+        diag.rows++;
+        const mv = nr.회원구분 != null && String(nr.회원구분).trim() !== '' ? String(nr.회원구분).trim() : '(빈 값)';
+        diag.memberValues[mv] = (diag.memberValues[mv] || 0) + 1;
+        if (isGuestRow(nr)) diag.guestRows++;
+    });
+    analyzedData.guestDiag = diag;
     rawData.forEach(row => {
         const nr = normalizeRow(row);
         if (!nr.주문일시 || !isGuestRow(nr)) return;
@@ -813,6 +829,7 @@ function renderCharts() {
     renderAmountDistChart();
     renderMemberCompChart();
     renderMemberRecent3Chart();
+    renderGuestNotice();
     renderGuestRepeatChart();
     renderMomCharts();
     renderCategoryMonthly();
@@ -1412,6 +1429,34 @@ const GUEST_CLASS_TIPS = {
 let guestRepeatViewMode = 'count'; // 'count' | 'amount' | 'users'
 const GUEST_MODE_UNIT = { count: '건', amount: '원', users: '명' };
 const GUEST_MODE_LABEL = { count: '주문건수', amount: '매출액', users: '실제 인원수(중복 제외)' };
+
+function renderGuestNotice() {
+    const d = analyzedData.guestDiag;
+    const values = d ? Object.entries(d.memberValues).sort((a, b) => b[1] - a[1]).map(([v, c]) => `${v} ${c.toLocaleString()}건`).join(', ') : '';
+    const g = document.getElementById('guestNotice');
+    if (g) {
+        if (!d || !d.rows) { g.innerHTML = ''; g.className = 'field-notice'; }
+        else if (d.guestRows > 0) {
+            g.className = 'field-notice ok';
+            g.innerHTML = `✅ 비회원 주문 <b>${d.guestRows.toLocaleString()}건</b> 인식 · 회원구분 컬럼 ${d.memberTypeCol ? '<b>있음</b>' : '없음'} · 주문자ID 컬럼 ${d.idCol ? `<b>${d.idCol}</b>` : '없음'}`;
+        } else {
+            g.className = 'field-notice warn';
+            g.innerHTML = `⚠️ 비회원 주문을 찾지 못했습니다. 회원구분 컬럼 ${d.memberTypeCol ? '있음' : '<b>없음</b>'}, 주문자ID 컬럼 ${d.idCol ? d.idCol : '<b>없음</b>'}.`
+                + `<br>회원구분 값: ${values || '-'}<br>읽은 컬럼: ${d.keys.join(', ')}`
+                + `<br>컬럼 선택 창에서 <b>회원구분</b>과 <b>주문자ID</b>를 체크했는지 확인해 주세요.`;
+        }
+    }
+    const r = document.getElementById('memberRecent3Notice');
+    if (r) {
+        if (d && d.rows && !d.memberTypeCol) {
+            r.className = 'field-notice warn';
+            r.innerHTML = `⚠️ <b>회원구분</b> 컬럼이 없어 모든 주문이 '미분류'로 묶였습니다. 업로드할 때 회원구분 컬럼을 함께 선택해 주세요.`;
+        } else if (d && d.rows) {
+            r.className = 'field-notice ok';
+            r.innerHTML = `✅ 회원구분 값: ${values}`;
+        } else { r.innerHTML = ''; r.className = 'field-notice'; }
+    }
+}
 
 function renderGuestRepeatChart() {
     const canvas = document.getElementById('guestRepeatChart');
